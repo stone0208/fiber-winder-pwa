@@ -1,0 +1,10 @@
+ファイバ巻取り計算 PWA
+Version: 1.0.0
+整理日: 2026-06-10
+形式: HTML + CSS + JavaScript + PWA
+保存: localStorage
+通信: 外部サーバ通信なし
+
+
+作成: R&D Ishii with ChatGPT
+日付: 2026-06-10

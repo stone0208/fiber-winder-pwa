@@ -1,0 +1,750 @@
+<!doctype html>
+<!--
+ファイバ巻取り計算 PWA
+Version: 1.0.0
+用途: ファイバ巻取り条件から rpm またはファイバ径を計算するローカルWebアプリ
+注意: 理論計算用。実条件は温度・張力・滑り等で変動するため、最終判断は実機確認を優先する。
+通信: 外部サーバ通信なし。保存はブラウザ内 localStorage。
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ファイバ巻取り計算</title>
+<style>
+:root{
+  --bg:#eaf6ff;--blue:#1565c0;--blue2:#0d47a1;--text:#0d2b45;--muted:#405b73;
+  --card:#fff;--line:#d7e8f7;--warn:#fff3cd;--ok:#ddf7e5;--gray:#edf4fb
+}
+*{box-sizing:border-box}
+body{margin:0;padding:8px;font-family:system-ui,-apple-system,"Segoe UI","Meiryo",sans-serif;background:var(--bg);color:var(--text)}
+.app{max-width:980px;margin:0 auto}
+.header{display:flex;align-items:end;justify-content:space-between;gap:8px;margin:2px 0 6px}
+h1{font-size:19px;margin:0;font-weight:900}
+.subtitle{font-size:11px;color:var(--muted)}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:6px}
+.tab{border:none;border-radius:8px;padding:7px 3px;background:white;color:var(--blue);font-weight:800;font-size:12px}
+.tab.active{background:var(--blue);color:white}
+.layout{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;align-items:start}
+.left{min-width:0}
+.right{min-width:0}
+.card{background:var(--card);border-radius:12px;padding:10px;box-shadow:0 2px 8px rgba(13,43,69,.08)}
+.result{
+  background:#ffffff;
+  color:var(--text);
+  border-radius:12px;
+  padding:12px 12px 12px 18px;
+  margin-bottom:8px;
+  border:3px solid #1565c0;
+  box-shadow:
+    0 0 0 3px rgba(21,101,192,.10),
+    0 3px 10px rgba(13,43,69,.08);
+  position:relative
+}
+.result::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:7px;
+  background:#1565c0;
+  border-radius:9px 0 0 9px;
+}
+.result-main{
+  font-size:30px;
+  font-weight:950;
+  line-height:1.05;
+  color:#0d47a1;
+  letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;
+}
+.result-detail{
+  margin-top:5px;
+  font-size:12px;
+  font-weight:700;
+  line-height:1.35;
+  color:#5c6f82;
+}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+.field{display:grid;grid-template-columns:104px 1fr;align-items:center;gap:6px;min-width:0}
+.field.full{grid-column:1/-1}
+label{font-size:12px;font-weight:800;line-height:1.2}
+input{width:100%;font-size:16px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:0}
+button{font-family:inherit;cursor:pointer}
+.mode-row,.units,.row{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.mode-row{grid-column:1/-1}
+.unit,.modebtn,.smallbtn,.calcbtn,.clearbtn{border:none;border-radius:8px;padding:8px;font-weight:850;font-size:13px}
+.unit,.modebtn{background:#fff;color:var(--blue);border:1px solid var(--line)}
+.unit.active,.modebtn.active{background:var(--blue);color:white}
+.smallbtn.copy{background:var(--warn);color:#4a3b00}.smallbtn.paste{background:var(--ok);color:#145a32}.smallbtn:disabled{opacity:.45}
+.calcbtn{width:100%;background:var(--blue);color:#fff;font-size:16px;padding:10px}.calcbtn:active{background:var(--blue2)}
+.clearbtn{width:100%;background:#b0bec5;color:white;margin-top:6px}
+.actions{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:6px;margin-top:8px}
+.hint{font-size:11px;color:var(--muted);line-height:1.35;margin:5px 0 0}
+.compare-title{font-weight:900;margin-bottom:4px;font-size:13px}
+.compare-line{padding:3px 0;border-top:1px solid var(--gray);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.compare-line:first-of-type{border-top:none}
+.note{text-align:center;color:var(--muted);font-size:10px;margin:6px 0;line-height:1.45}.note br{line-height:1.7}
+.error{background:#fff0f0;color:#8a1f1f;border:1px solid #f2b8b8;border-radius:8px;padding:7px;margin-top:6px;display:none;font-size:12px}
+.hidden{display:none!important}
+.compact-title{font-weight:900;font-size:13px;margin-bottom:6px;color:#12395b}
+@media(max-width:760px){
+  body{padding:4px}
+  .app{width:100%;max-width:none}
+  .layout,.left,.right,.card,.result,.compare{width:100%}
+  .header{align-items:center;margin-bottom:4px}
+  h1{font-size:16px}
+  .subtitle{display:none}
+  .tabs{gap:3px;margin-bottom:5px}
+  .tab{font-size:11px;padding:6px 2px;border-radius:7px}
+  .layout{display:flex;flex-direction:column}
+  .left{order:1}.right{order:2}
+  .card{padding:8px;border-radius:9px}
+  .result{padding:9px;margin-bottom:6px;border-radius:9px}
+  .result::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:7px;
+  background:#1565c0;
+  border-radius:9px 0 0 9px;
+}
+.result-main{font-size:25px}
+  .result-detail{font-size:11px}
+  .formgrid{grid-template-columns:1fr;gap:5px}
+  .field{grid-template-columns:96px 1fr;gap:5px}
+  label{font-size:11px}
+  input{font-size:15px;padding:6px 7px;border-radius:7px}
+  .unit,.modebtn,.smallbtn,.calcbtn,.clearbtn{font-size:12px;padding:7px;border-radius:7px}
+  .actions{grid-template-columns:1fr 1fr 1.2fr;margin-top:6px}
+  .compare{display:block;padding:7px;margin-top:4px}
+  .compare-title{font-size:11px;margin-bottom:3px}
+  .compare-line{font-size:11px;padding:2px 0;line-height:1.25}
+  .hint{font-size:10px;margin-top:3px}
+  .note{display:none}
+}
+@media(max-width:390px){
+  body{padding:3px}
+  .field{grid-template-columns:86px 1fr}
+  .result::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:7px;
+  background:#1565c0;
+  border-radius:9px 0 0 9px;
+}
+.result-main{font-size:22px}
+  h1{font-size:15px}
+}
+
+.extra-actions{grid-template-columns:repeat(4,1fr);margin-top:6px}
+.saved-card{margin-top:8px}
+.saved-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.saved-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-buttons{display:flex;gap:4px;flex:0 0 auto}
+.inlinebtn{border:none;border-radius:6px;padding:3px 7px;font-weight:850;font-size:11px;color:white}
+.inlinebtn.load{background:#1565c0}
+.inlinebtn.delete{background:#d8c2c2;color:#5a2a2a}
+@media(max-width:760px){
+  .extra-actions{grid-template-columns:repeat(4,1fr)}
+  .inlinebtn{font-size:10px;padding:2px 5px}
+}
+
+</style>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1565c0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="巻取り計算">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>🐔 ファイバ巻取り計算</h1>
+    <div class="subtitle">径→rpm / rpm→径</div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+
+  <div class="layout">
+    <div class="left card">
+      <div class="compact-title">条件</div>
+      <div class="formgrid">
+        <div class="field full"><label>条件名</label><input id="name" inputmode="text" placeholder="例：標準条件"></div>
+
+        <div class="mode-row">
+          <button class="modebtn" id="modeRpm" onclick="setMode('rpm')">径 → rpm</button>
+          <button class="modebtn" id="modeFiber" onclick="setMode('fiber')">rpm → 径</button>
+        </div>
+
+        <div class="field"><label>プリフォーム外径 [mm]</label><input id="preform" inputmode="decimal" placeholder="数値"></div>
+        <div class="field"><label>ローラ外径 [mm]</label><input id="roller" inputmode="decimal" placeholder="数値"></div>
+        <div class="field"><label>移動速度 [mm/min]</label><input id="speed" inputmode="decimal" placeholder="数値"></div>
+
+        <div id="fiberInputBlock" class="field">
+          <label id="fiberLabel">ファイバ径 [mm]</label>
+          <input id="fiber" inputmode="decimal" placeholder="数値">
+        </div>
+
+        <div id="fiberUnitBlock" class="field">
+          <label>径単位</label>
+          <div class="units">
+            <button class="unit" id="unitMm" onclick="setUnit('mm')">mm</button>
+            <button class="unit" id="unitUm" onclick="setUnit('μm')">μm</button>
+          </div>
+        </div>
+
+        <div id="rpmInputBlock" class="field hidden">
+          <label>ローラ回転 [rpm]</label>
+          <input id="rpm" inputmode="decimal" placeholder="数値">
+        </div>
+
+        <div id="resultUnitBlock" class="field hidden">
+          <label>結果単位</label>
+          <div class="units">
+            <button class="unit" id="resultUnitUm" onclick="setResultUnit('μm')">μm</button>
+            <button class="unit" id="resultUnitMm" onclick="setResultUnit('mm')">mm</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint" id="modeHint"></div>
+      <div class="actions">
+        <button class="smallbtn copy" onclick="copyCondition()">コピー</button>
+        <button class="smallbtn paste" id="pasteBtn" onclick="pasteCondition()">貼付</button>
+        <button class="calcbtn" onclick="calculate()">計算</button>
+      </div>
+      <div class="error" id="errorBox"></div>
+      
+<div class="actions extra-actions">
+  <button class="smallbtn copy" onclick="undoLast()">Undo</button>
+  <button class="smallbtn paste" onclick="savePreset()">保存</button>
+  <button class="smallbtn copy" onclick="exportCSV()">CSV保存</button>
+  <button class="smallbtn paste" onclick="openCSVImport()">CSV読込</button>
+  <input id="csvImportInput" type="file" accept=".csv,text/csv" style="display:none" onchange="importCSV(event)">
+</div>
+<button class="clearbtn" onclick="clearCondition()">クリア</button>
+
+    </div>
+
+    <div class="right">
+      <div class="result">
+        <div style="position:absolute;right:10px;top:8px;font-size:36px;opacity:1;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.08));">🐔</div>
+        <div class="result-main" id="resultMain">未計算</div>
+        <div class="result-detail" id="resultDetail"></div>
+      </div>
+      <div class="card compare">
+        <div class="compare-title">条件比較</div>
+        <div id="compare"></div>
+      </div>
+      <div class="card compare saved-card">
+        <div class="compare-title">保存済み条件</div>
+        <div class="hint">貼付・削除ができます。削除はUndo可能です。</div>
+        <button class="clearbtn" style="margin:4px 0 6px;padding:6px;font-size:12px;background:#d9caca;color:#5a2a2a;border:1px solid #c7b2b2" onclick="deleteAllPresets()">保存済み条件を全削除</button>
+        <div id="savedList"></div>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    Ver 1.0.0 ｜ R&D Ishii with ChatGPT ｜ 2026-06-10 ｜ 保存先：このブラウザ内の保存領域 localStorage<br>
+    理論計算用：体積保存・滑りなしを前提。最終条件は実機で確認してください。<br>
+    HTML+JavaScript製ローカルWebアプリ。外部サーバ通信は使用していません。
+  </div>
+</div>
+
+<script>
+const APP_VERSION="1.0.0";
+const STORAGE_KEY="fiber_winder_conditions_compact_v1";
+const OLD_KEYS=["fiber_winder_conditions_html_v2","fiber_winder_conditions_html_v1"];
+const defaultCondition={name:"",mode:"rpm",preform_diameter:"",roller_diameter:"",preform_speed:"",fiber_diameter:"",fiber_unit:"mm",result_unit:"μm",roller_rpm:"",result:"未計算",detail:""};
+let selectedIndex=0,conditions=[],copiedCondition=null;
+
+function makeDefaultCondition(){return {...defaultCondition};}
+function el(id){return document.getElementById(id);}
+function safeGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function safeSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function normalizeNumberText(text){return String(text??"").trim().replace(/　/g,"").replace(/，/g,",").replace(/,/g,"").replace(/[０-９．]/g,ch=>"０１２３４５６７８９．".indexOf(ch)>=0?"0123456789."["０１２３４５６７８９．".indexOf(ch)]:ch)}
+function toFloat(text){const n=Number(normalizeNumberText(text));if(!Number.isFinite(n))throw new Error("数値として読めない入力があります");return n}
+
+function loadData(){
+  try{
+    let raw=safeGet(STORAGE_KEY);
+    if(!raw){for(const k of OLD_KEYS){raw=safeGet(k);if(raw)break;}}
+    if(!raw)throw new Error("no data");
+    const data=JSON.parse(raw);
+    conditions=[];
+    for(let i=0;i<4;i++)conditions.push({...makeDefaultCondition(),...(data.conditions?.[i]||{})});
+    selectedIndex=Math.max(0,Math.min(3,Number(data.selectedIndex||0)));
+  }catch(e){
+    conditions=[makeDefaultCondition(),makeDefaultCondition(),makeDefaultCondition(),makeDefaultCondition()];
+    selectedIndex=0;
+  }
+}
+function saveData(){safeSet(STORAGE_KEY,JSON.stringify({selectedIndex,conditions}))}
+
+function saveScreenToCondition(){
+  const c=conditions[selectedIndex];
+  c.name=el("name").value;
+  c.preform_diameter=el("preform").value;
+  c.roller_diameter=el("roller").value;
+  c.preform_speed=el("speed").value;
+  c.fiber_diameter=el("fiber").value;
+  c.roller_rpm=el("rpm").value;
+  saveData();
+}
+function loadConditionToScreen(){
+  const c=conditions[selectedIndex];
+  el("name").value=c.name;
+  el("preform").value=c.preform_diameter;
+  el("roller").value=c.roller_diameter;
+  el("speed").value=c.preform_speed;
+  el("fiber").value=c.fiber_diameter;
+  el("rpm").value=c.roller_rpm||"";
+  updateResult();updateModeButtons();updateUnitButtons();updateResultUnitButtons();hideError();
+}
+function setMode(mode){saveScreenToCondition();conditions[selectedIndex].mode=mode;saveData();updateModeButtons()}
+function updateModeButtons(){
+  const mode=conditions[selectedIndex].mode||"rpm";
+  el("modeRpm").classList.toggle("active",mode==="rpm");
+  el("modeFiber").classList.toggle("active",mode==="fiber");
+  el("fiberInputBlock").classList.toggle("hidden",mode!=="rpm");
+  el("fiberUnitBlock").classList.toggle("hidden",mode!=="rpm");
+  el("rpmInputBlock").classList.toggle("hidden",mode!=="fiber");
+  el("resultUnitBlock").classList.toggle("hidden",mode!=="fiber");
+  el("modeHint").textContent=mode==="rpm"?"目標ファイバ径から必要なローラ回転数を出します。":"ローラ回転数から出てくるファイバ径を逆算します。";
+  updateResultUnitButtons();
+}
+function setUnit(unit){saveScreenToCondition();conditions[selectedIndex].fiber_unit=unit;saveData();updateUnitButtons()}
+function setResultUnit(unit){saveScreenToCondition();conditions[selectedIndex].result_unit=unit;saveData();updateResultUnitButtons()}
+function updateUnitButtons(){
+  const unit=conditions[selectedIndex].fiber_unit||"mm";
+  el("unitMm").classList.toggle("active",unit==="mm");
+  el("unitUm").classList.toggle("active",unit==="μm");
+  el("fiberLabel").textContent=`ファイバ径 [${unit}]`;
+}
+function updateResultUnitButtons(){
+  const unit=conditions[selectedIndex].result_unit||"μm";
+  el("resultUnitUm").classList.toggle("active",unit==="μm");
+  el("resultUnitMm").classList.toggle("active",unit==="mm");
+}
+function calculate(){
+  try{
+    saveScreenToCondition();
+    const c={...conditions[selectedIndex]};
+    const mode=c.mode||"rpm";
+    const dp=toFloat(c.preform_diameter);
+    const dr=toFloat(c.roller_diameter);
+    const v=toFloat(c.preform_speed);
+    if(dp<=0||dr<=0||v<=0)throw new Error("外径、ローラ外径、移動速度は正の数値を入力してください");
+
+    if(mode==="rpm"){
+      const dfInput=toFloat(c.fiber_diameter);
+      if(dfInput<=0)throw new Error("ファイバ径は正の数値を入力してください");
+      const df=c.fiber_unit==="μm"?dfInput*0.001:dfInput;
+      const takeUp=v*Math.pow(dp/df,2);
+      const rpm=takeUp/(Math.PI*dr);
+      c.result=`${rpm.toFixed(3)} rpm`;
+      c.detail=`線速度 ${(takeUp/1000).toFixed(3)} m/min / 直径比 1/${(dp/df).toFixed(2)} / 断面積比 1/${(Math.pow(dp/df,2)).toFixed(1)} （長さ比 ${(Math.pow(dp/df,2)).toFixed(1)}倍）`;
+    }else{
+      const rpm=toFloat(c.roller_rpm);
+      if(rpm<=0)throw new Error("ローラ回転数は正の数値を入力してください");
+      const takeUp=rpm*Math.PI*dr;
+      const df=dp*Math.sqrt(v/takeUp);
+      const resultUnit=c.result_unit||"μm";
+      if(resultUnit==="mm"){
+        c.result=`${df.toFixed(6)} mm`;
+        c.detail=`${(df*1000).toFixed(3)} μm / 線速度 ${(takeUp/1000).toFixed(3)} m/min / 直径比 1/${(dp/df).toFixed(2)} / 断面積比 1/${(takeUp/v).toFixed(1)} （長さ比 ${(takeUp/v).toFixed(1)}倍）`;
+      }else{
+        c.result=`${(df*1000).toFixed(3)} μm`;
+        c.detail=`${df.toFixed(6)} mm / 線速度 ${(takeUp/1000).toFixed(3)} m/min / 直径比 1/${(dp/df).toFixed(2)} / 断面積比 1/${(takeUp/v).toFixed(1)} （長さ比 ${(takeUp/v).toFixed(1)}倍）`;
+      }
+    }
+    conditions[selectedIndex]=c;saveData();updateAll();hideError();
+  }catch(e){showError(`入力値を確認してください。${e.message}`)}
+}
+function copyCondition(){saveScreenToCondition();copiedCondition={...conditions[selectedIndex]};updateAll()}
+function pasteCondition(){if(!copiedCondition)return;conditions[selectedIndex]={...copiedCondition};saveData();loadConditionToScreen();updateAll()}
+function clearCondition(){
+  const old=conditions[selectedIndex];
+  conditions[selectedIndex]={...makeDefaultCondition(),name:old.name,mode:old.mode||"rpm",fiber_unit:old.fiber_unit||"mm",result_unit:old.result_unit||"μm"};
+  saveData();loadConditionToScreen();updateAll();
+}
+function selectTab(i){saveScreenToCondition();selectedIndex=i;saveData();loadConditionToScreen();updateAll()}
+function shortName(name,fallback){const s=name||fallback;return s.length>8?s.slice(0,8)+"…":s}
+function renderTabs(){
+  const tabs=el("tabs");tabs.innerHTML="";
+  conditions.forEach((c,i)=>{const b=document.createElement("button");b.className="tab"+(i===selectedIndex?" active":"");b.textContent=shortName(c.name,`条件${i+1}`);b.onclick=()=>selectTab(i);tabs.appendChild(b)});
+}
+function updateResult(){const c=conditions[selectedIndex];el("resultMain").textContent=c.result||"未計算";el("resultDetail").textContent=c.detail||""}
+function modeMark(c){return(c.mode||"rpm")==="fiber"?"径":"rpm"}
+function updateCompare(){
+  const box=el("compare");box.innerHTML="";
+  conditions.forEach((c,i)=>{const line=document.createElement("div");line.className="compare-line";line.textContent=`🐔 ${c.name||`条件${i+1}`} [${modeMark(c)}] ${c.result||"未計算"}`;box.appendChild(line)});
+}
+function showError(msg){el("errorBox").style.display="block";el("errorBox").textContent=msg}
+function hideError(){el("errorBox").style.display="none";el("errorBox").textContent=""}
+function updateAll(){renderTabs();updateResult();updateCompare();updateModeButtons();updateUnitButtons();updateResultUnitButtons();el("pasteBtn").disabled=copiedCondition===null}
+
+["name","preform","roller","speed","fiber","rpm"].forEach(id=>{
+  window.addEventListener("load",()=>{el(id).addEventListener("input",()=>{saveScreenToCondition();renderTabs();updateCompare()})});
+});
+
+const PRESET_KEY="fiber_saved_presets_v2";
+let undoStack=[];
+
+function deepCopy(obj){return JSON.parse(JSON.stringify(obj));}
+
+function snapshotState(includePresets=true){
+  try{
+    undoStack.push(JSON.stringify({
+      selectedIndex:selectedIndex,
+      conditions:deepCopy(conditions),
+      presets:includePresets ? getPresets() : null
+    }));
+    if(undoStack.length>30)undoStack.shift();
+  }catch(e){}
+}
+
+function restoreState(state){
+  selectedIndex=state.selectedIndex;
+  conditions=state.conditions;
+  if(state.presets!==null && state.presets!==undefined)savePresets(state.presets);
+  saveData();
+  loadConditionToScreen();
+  updateAll();
+  renderSavedList();
+}
+
+function undoLast(){
+  if(undoStack.length===0){
+    showError("Undoできる履歴がありません");
+    return;
+  }
+  const state=JSON.parse(undoStack.pop());
+  restoreState(state);
+  hideError();
+}
+
+function getPresets(){
+  try{return JSON.parse(localStorage.getItem(PRESET_KEY)||"[]")}
+  catch(e){return []}
+}
+
+function savePresets(v){
+  try{localStorage.setItem(PRESET_KEY,JSON.stringify(v))}
+  catch(e){showError("保存領域に書き込めませんでした")}
+}
+
+function nowStamp(){
+  const d=new Date();
+  return d.getFullYear()+"-"+
+    String(d.getMonth()+1).padStart(2,"0")+"-"+
+    String(d.getDate()).padStart(2,"0")+" "+
+    String(d.getHours()).padStart(2,"0")+":"+
+    String(d.getMinutes()).padStart(2,"0");
+}
+
+function savePreset(){
+  saveScreenToCondition();
+  snapshotState();
+  const c=deepCopy(conditions[selectedIndex]);
+  const presets=getPresets();
+  presets.unshift({
+    savedAt:nowStamp(),
+    title:c.name||`条件${selectedIndex+1}`,
+    data:c
+  });
+  savePresets(presets);
+  renderSavedList();
+  hideError();
+}
+
+function loadPreset(i){
+  const presets=getPresets();
+  if(!presets[i])return;
+  saveScreenToCondition();
+  snapshotState();
+  conditions[selectedIndex]=deepCopy(presets[i].data);
+  saveData();
+  loadConditionToScreen();
+  updateAll();
+  hideError();
+}
+
+function deletePreset(i){
+  const presets=getPresets();
+  if(!presets[i]){
+    showError("削除対象が見つかりません");
+    return;
+  }
+  const target=presets[i];
+  if(!confirm("保存条件を削除しますか？\n\n"+(target.savedAt||"")+"\n"+(target.title||"無題条件")))return;
+  snapshotState();
+  presets.splice(i,1);
+  savePresets(presets);
+  renderSavedList();
+  hideError();
+}
+
+
+function deleteAllPresets(){
+  const presets=getPresets();
+
+  if(presets.length===0){
+    showError("削除する保存済み条件がありません");
+    return;
+  }
+
+  const ok=confirm(
+    "保存済み条件をすべて削除しますか？\n\n"+
+    presets.length+"件の保存済み条件が削除されます。"
+  );
+
+  if(!ok)return;
+
+  snapshotState();
+
+  savePresets([]);
+  renderSavedList();
+
+  hideError();
+}
+
+
+function renderSavedList(){
+  const box=el("savedList");
+  if(!box)return;
+  const presets=getPresets();
+  box.innerHTML="";
+  if(presets.length===0){
+    box.innerHTML='<div class="compare-line">保存済み条件なし</div>';
+    return;
+  }
+  presets.forEach((p,i)=>{
+    const row=document.createElement("div");
+    row.className="compare-line saved-row";
+    const text=document.createElement("div");
+    text.className="saved-text";
+    text.innerHTML=`🐔 <b>${p.savedAt||""}</b> ｜ ${p.title||"無題条件"}`;
+    const btns=document.createElement("div");
+    btns.className="saved-buttons";
+
+    const loadBtn=document.createElement("button");
+    loadBtn.className="inlinebtn load";
+    loadBtn.textContent="貼付";
+    loadBtn.onclick=()=>loadPreset(i);
+
+    const delBtn=document.createElement("button");
+    delBtn.className="inlinebtn delete";
+    delBtn.textContent="削除";
+    delBtn.onclick=()=>deletePreset(i);
+
+    btns.appendChild(loadBtn);
+    btns.appendChild(delBtn);
+    row.appendChild(text);
+    row.appendChild(btns);
+    box.appendChild(row);
+  });
+}
+
+function exportCSV(){
+  saveScreenToCondition();
+  const rows=[
+    ["保存日時","条件名","モード","プリフォーム径","ローラ径","移動速度","ファイバ径","ファイバ径単位","rpm","結果単位","結果","詳細"]
+  ];
+  const stamp=nowStamp();
+
+  conditions.forEach(c=>{
+    rows.push([
+      stamp,
+      c.name||"",
+      c.mode||"",
+      c.preform_diameter||"",
+      c.roller_diameter||"",
+      c.preform_speed||"",
+      c.fiber_diameter||"",
+      c.fiber_unit||"",
+      c.roller_rpm||"",
+      c.result_unit||"",
+      c.result||"",
+      c.detail||""
+    ]);
+  });
+
+  getPresets().forEach(p=>{
+    const c=p.data||{};
+    rows.push([
+      p.savedAt||"",
+      p.title||c.name||"",
+      c.mode||"",
+      c.preform_diameter||"",
+      c.roller_diameter||"",
+      c.preform_speed||"",
+      c.fiber_diameter||"",
+      c.fiber_unit||"",
+      c.roller_rpm||"",
+      c.result_unit||"",
+      c.result||"",
+      c.detail||""
+    ]);
+  });
+
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="fiber_conditions.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseCSV(text){
+  text=String(text||"").replace(/^\uFEFF/,"");
+  const rows=[];
+  let row=[], cell="", inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i], next=text[i+1];
+    if(inQuotes){
+      if(ch==='"' && next==='"'){cell+='"';i++;}
+      else if(ch==='"'){inQuotes=false;}
+      else{cell+=ch;}
+    }else{
+      if(ch==='"')inQuotes=true;
+      else if(ch===","){row.push(cell);cell="";}
+      else if(ch==="\n"){row.push(cell);rows.push(row);row=[];cell="";}
+      else if(ch==="\r"){}
+      else cell+=ch;
+    }
+  }
+  row.push(cell);
+  if(row.length>1 || row[0] !== "")rows.push(row);
+  return rows;
+}
+
+function openCSVImport(){
+  const input=el("csvImportInput");
+  input.value="";
+  input.click();
+}
+
+function importCSV(event){
+  const file=event.target.files && event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(){
+    try{
+      const rows=parseCSV(reader.result);
+      if(rows.length<2)throw new Error("CSVに条件データがありません");
+      const header=rows[0].map(h=>String(h).trim());
+      const index=name=>header.indexOf(name);
+
+      const idxSavedAt=index("保存日時");
+      const idxName=index("条件名");
+      const idxMode=index("モード");
+      const idxPreform=index("プリフォーム径");
+      const idxRoller=index("ローラ径");
+      const idxSpeed=index("移動速度");
+      const idxFiber=index("ファイバ径");
+      const idxFiberUnit=index("ファイバ径単位");
+      const idxRpm=index("rpm");
+      const idxResultUnit=index("結果単位");
+      const idxResult=index("結果");
+      const idxDetail=index("詳細");
+
+      if(idxName<0 || idxMode<0 || idxPreform<0 || idxRoller<0 || idxSpeed<0){
+        throw new Error("このCSVは本ツールの保存形式として読めません");
+      }
+
+      const imported=[];
+      rows.slice(1).forEach(r=>{
+        if(r.every(v=>String(v||"").trim()===""))return;
+        const c={
+          ...makeDefaultCondition(),
+          name:r[idxName]||"",
+          mode:r[idxMode]||"rpm",
+          preform_diameter:r[idxPreform]||"",
+          roller_diameter:r[idxRoller]||"",
+          preform_speed:r[idxSpeed]||"",
+          fiber_diameter:idxFiber>=0 ? (r[idxFiber]||"") : "",
+          fiber_unit:idxFiberUnit>=0 ? (r[idxFiberUnit]||"mm") : "mm",
+          roller_rpm:idxRpm>=0 ? (r[idxRpm]||"") : "",
+          result_unit:idxResultUnit>=0 ? (r[idxResultUnit]||"μm") : "μm",
+          result:idxResult>=0 ? (r[idxResult]||"未計算") : "未計算",
+          detail:idxDetail>=0 ? (r[idxDetail]||"") : ""
+        };
+        if(c.mode!=="rpm" && c.mode!=="fiber")c.mode="rpm";
+        if(c.fiber_unit!=="mm" && c.fiber_unit!=="μm")c.fiber_unit="mm";
+        if(c.result_unit!=="mm" && c.result_unit!=="μm")c.result_unit="μm";
+        imported.push({
+          savedAt:(idxSavedAt>=0 && r[idxSavedAt]) ? r[idxSavedAt] : "CSV取込",
+          title:c.name||"CSV取込条件",
+          data:c
+        });
+      });
+
+      if(imported.length===0)throw new Error("取り込める条件がありません");
+
+      snapshotState();
+      savePresets(imported.concat(getPresets()));
+      renderSavedList();
+      showError(imported.length+"件のCSV条件を保存済み条件へ取り込みました。貼付ボタンで使用できます。");
+    }catch(e){
+      showError("CSV読込に失敗しました。"+e.message);
+    }
+  };
+  reader.readAsText(file,"utf-8");
+}
+
+// Wrap selected destructive / state-changing operations after original definitions exist.
+const __originalClearCondition=clearCondition;
+clearCondition=function(){
+  snapshotState();
+  __originalClearCondition();
+  renderSavedList();
+}
+
+const __originalPasteCondition=pasteCondition;
+pasteCondition=function(){
+  if(!copiedCondition)return;
+  snapshotState(false);
+  __originalPasteCondition();
+}
+
+const __originalCalculate=calculate;
+calculate=function(){
+  snapshotState(false);
+  __originalCalculate();
+}
+
+const __originalUpdateAll=updateAll;
+updateAll=function(){
+  __originalUpdateAll();
+  renderSavedList();
+}
+
+loadData();
+window.addEventListener("load",()=>{loadConditionToScreen();updateAll()});
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+  });
+}
+</script>
+
+</body>
+</html>
